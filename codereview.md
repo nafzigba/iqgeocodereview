@@ -16,128 +16,85 @@ This presentation covers creating a custom shader pipeline for a 3D rendering en
 
 ## Code Overview
 GLSL is a shader pipeline technology that comes built in with OpenGL. OpenGL is required for this to work as it creates binding points in the memory and allocates space for the shaders. It has default implementations of each step of the pipeline and it is not necessary to create custom shaders. You can manage coloring, surface normals, and lighting within the rendering engine portion of your code, however this will run on the CPU and have poor performance; whereas shaders run calculations on the GPU boosting performance. 
-The three sections of this presentation will be Buffer Writing, Layouts, and Calculations
+The three sections of this presentation will be Buffer Writing, Layouts, and Calculations.
 ---
 
 ## Buffer Writing
 Warning this is C++ code, it is graphic and if you have a weak stomach I recommend looking away for this part. 
+This is a sample of a layout connector that inputs different view model matrices into the GLSL pipeline. This can be eventually generalized once there are many layout blocks that you want to insert data into, for example if you want also material blocks, lighting, fog, etc...
 
+Here is the data we want to send into the pipeline, as you can see theres a projection matrix, view matrix and model matrix. 
+```cpp
+#include "SharedTransformations.h"
+GLuint SharedTransformations::projectionLocation; // Byte offset of the projection matrix
+glm::mat4 SharedTransformations::projectionMatrix; // Current projection matrix that is held in the buffer
+GLuint SharedTransformations::viewLocation;
+glm::mat4 SharedTransformations::viewMatrix;
+GLuint SharedTransformations::modelLocation;
+glm::mat4 SharedTransformations::modelMatrix;
+GLuint SharedTransformations::normalModelLocation;
+GLuint SharedTransformations::eyePositionLocation;
+SharedUniformBlock SharedTransformations::projViewBlock(projectionViewBlockBindingPoint);
+SharedUniformBlock SharedTransformations::worldEyeBlock(worldEyeBlockBindingPoint);
+const std::string SharedTransformations::transformBlockName = "transformBlock";
+const std::string SharedTransformations::eyeBlockName = "worldEyeBlock";
 ```
-#include "SharedUniformBlock.h"
-#define VERBOSE false
-bool checkBlockLocationFound(const GLchar* locationName, GLuint indice)
+This following piece takes the above data, labels it, and packs it into an array to eventually slot into the buffer that is allocated in memory. 
+```cpp
+void SharedTransformations::setUniformBlockForShader(GLuint shaderProgram)
 {
-	if (indice == GL_INVALID_INDEX) {
-    	std::cerr << locationName << " not found in shader." << std::endl;
-    	return false;
-	}
-	else {
-    	//cout << locationName << " index is " <<  indice << endl;
-    	return true;
-	}
-} // end checkBlockLocationFound
-std::vector<GLint> SharedUniformBlock::setUniformBlockForShader(GLuint shaderProgram, std::string blockName, std::vector<std::string> blockMembers)
-{
-	// Determine the size of the block and set the binding point for the block(s)
-	determineBlockSizeSetBindingPoint(shaderProgram, blockName);
-	// Has the buffer been created and have the byte offset been found?
-	if (blockSizeAndOffetsSet == false ) {
-    	// Set up the buffers and bind to binding points
-    	allocateBuffer(shaderProgram);
-    	// Find the byte offsets of the uniform block variables
-    	findOffsets(shaderProgram, blockMembers);
-    	// Indicate the buffer has already been allocated and the offsets have been determined
-    	blockSizeAndOffetsSet = true;
-	}
-	return offsets;
+	std::vector<std::string> projViewMemberNames = { "modelMatrix", "normalModelMatrix", "viewMatrix", "projectionMatrix"};
+	std::vector<GLint> uniformOffsets = projViewBlock.setUniformBlockForShader(shaderProgram, transformBlockName, projViewMemberNames);
+	// Save locations
+	modelLocation = uniformOffsets[0];
+	normalModelLocation = uniformOffsets[1];
+	viewLocation = uniformOffsets[2];
+	projectionLocation = uniformOffsets[3];
+	uniformOffsets.clear();
+	std::vector<std::string> worldEyeMemberNames = { "worldEyePosition" };
+	uniformOffsets = worldEyeBlock.setUniformBlockForShader(shaderProgram, eyeBlockName, worldEyeMemberNames);
+	// Save location
+	eyePositionLocation = uniformOffsets[0];
 } // end setUniformBlockForShader
-void SharedUniformBlock::determineBlockSizeSetBindingPoint(GLuint shaderProgram, std::string blockName)
+```
+Here the glBindBuffer function is the workhorse of the code. For the view matrix you need to consider the world and projection blocks, but for modeling and projection matrices there the same. 
+```cpp
+void SharedTransformations::setViewMatrix( glm::mat4 viewMatrix)
 {
-	// Get the index of the block
-	GLuint blockIndex = glGetUniformBlockIndex(shaderProgram, blockName.c_str());
-	if (checkBlockLocationFound(blockName.c_str(), blockIndex)) {
-    	// Determine the size in bytes of the uniform block.
-    	glGetActiveUniformBlockiv(shaderProgram, blockIndex, GL_UNIFORM_BLOCK_DATA_SIZE, &blockSize);
-    	if ( VERBOSE ) std::cout << blockName.c_str() << " size is " << blockSize << std::endl;
-    	// Assign the block to a binding point.
-    	glUniformBlockBinding(shaderProgram, blockIndex, blockBindingPoint);
-	}
-} // end determineBlockSizeSetBindingPoint
-
-
-void SharedUniformBlock::allocateBuffer(GLuint shaderProgram )
-{
-	if (blockSize > 0) {
-
-    	// Get an identifier for a buffer
-    	glGenBuffers(1, &blockBuffer);
-
-    	// Bind the buffer
-    	glBindBuffer(GL_UNIFORM_BUFFER, blockBuffer);
-
-    	// Allocate the buffer. Does not load data. Note the use of nullptr where the data would normally be.
-    	// Data is not loaded because the above struct will not be byte alined with the uniform block.
-    	glBufferData(GL_UNIFORM_BUFFER, blockSize, nullptr, GL_DYNAMIC_DRAW);
-
-    	// Assign the buffer to a binding point to be the same as the uniform block in the shader(s).
-    	glBindBufferBase(GL_UNIFORM_BUFFER, blockBindingPoint, blockBuffer);
+	if (projViewBlock.getSize() > 0  ) {
+		// Bind the buffer. 
+		glBindBuffer(GL_UNIFORM_BUFFER, projViewBlock.getBuffer());
+		SharedTransformations::viewMatrix = viewMatrix;
+		glBufferSubData(GL_UNIFORM_BUFFER, viewLocation, sizeof(glm::mat4), glm::value_ptr(viewMatrix));
 	}
 
-} // end allocateBuffer
-
-
-void SharedUniformBlock::findOffsets(GLuint shaderProgram, std::vector<std::string> blockMembers)
-{
-	const int numberOfNames = static_cast<int>(blockMembers.size());
-
-	GLuint* uniformIndices = new GLuint[numberOfNames];
-	GLint* uniformOffsets = new GLint[numberOfNames];
-	GLchar ** charStringNames = new GLchar *[numberOfNames];
-
-	// Represent all the variable names stored as strings as character arrays
-	for (int i = 0; i < numberOfNames; i++) {
-
-    	charStringNames[i] = (GLchar *)blockMembers[i].c_str();
+	if (worldEyeBlock.getSize() > 0 ) {
+		// Bind the buffer.
+		glBindBuffer(GL_UNIFORM_BUFFER, worldEyeBlock.getBuffer());
+		glm::vec3 viewPoint = vec3(glm::inverse(viewMatrix)[3]);
+		glBufferSubData(GL_UNIFORM_BUFFER, eyePositionLocation, sizeof(glm::vec3), glm::value_ptr(viewPoint));
 	}
+	// Unbind the buffer. 
+	glBindBuffer(GL_UNIFORM_BUFFER, 0);
+} // end setViewMatrix
+```
+Accessor functions, projection and modeling functions are the same.
+```cpp
+glm::mat4 SharedTransformations::getViewMatrix()
+{return viewMatrix;}
+```
 
-	// Get the index for each on of the names in the uniform block
-	glGetUniformIndices(shaderProgram, numberOfNames, (const GLchar **)charStringNames, uniformIndices);
+## Layouts
+The uniforms are where all of the data that we bound in the buffers can be accessed. These need to have the same names.  
 
-	// Verify that all the names were acually found and print out and error message if not
-	for (int i = 0; i < numberOfNames; i++) {
-
-    	checkBlockLocationFound(charStringNames[i], uniformIndices[i]);
-	}
-
-	//Get the byte offsets for each of the uniforms members using the indices. The
-	// offsets in the buffer will be the same.
-	glGetActiveUniformsiv(shaderProgram, numberOfNames, uniformIndices, GL_UNIFORM_OFFSET, uniformOffsets);
-
-	// Copy the byte offsets into a vector that can be returned to the to
-	// the subclass that is setting up a uniform block.
-	for (int i = 0; i < numberOfNames; i++) {
-
-    	if (VERBOSE) std::cout << '\t' << charStringNames[i] << " offset is " << uniformOffsets[i] << std::endl;
-        	offsets.push_back(uniformOffsets[i]);
-	}
-
-	// Deallocate memory
-	delete [] uniformIndices;
-	delete [] uniformOffsets;
-	delete [] charStringNames;
-
-} // findOffsets
-
-## Code Snippet
-
-```glsl
+``` glsl
 #version 330 core
 layout(location = 0) in vec3 aPosition;
 
 uniform mat4 modelMatrix;
 uniform mat4 viewMatrix;
 uniform mat4 projectionMatrix;
-
+```
 void main() {
     gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(aPosition, 1.0);
 }
