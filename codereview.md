@@ -1,7 +1,5 @@
-As part of this, we ask you to prepare a 15 minute technical presentation of a project you've worked on. Please prepare something that you are comfortable presenting and discussing with the interviewers, specifically focussing on the logic and  direction behind your decisions. This could be from a previous job, a personal project, or any example that you feel best demonstrates your skills. This will be followed by Q&A. 
-
 ## IQGeo Code Review Presentation 
-<h2><a href="https://github.com/nafzigba/GameEngine_cpp/tree/master">Original Project Git Repo<a></h2>
+<h2><a href="https://github.com/nafzigba/GameEngine_cpp/tree/master">Original Project Git Repo</a></h2>
 
 ### Bradley Nafziger
 ### 3/3/25
@@ -9,17 +7,22 @@ As part of this, we ask you to prepare a 15 minute technical presentation of a p
 ---
 
 ## Introduction
+
 This presentation covers creating a custom shader pipeline for a 3D rendering engine using GLSL. It will go over implementation within an existing C++ codebase, benefits, common issues and debugging, and features. 
+
 
 ---
 
+
 ## Technology Overview
+
 GLSL is a shader pipeline technology that comes built in with OpenGL. OpenGL is required for this to work as it creates binding points in the memory and allocates space for the shaders. It has default implementations of each step of the pipeline and it is not necessary to create custom shaders. You can manage coloring, surface normals, and lighting within the rendering engine portion of your code, however this will run on the CPU and have poor performance; whereas shaders run calculations on the GPU boosting performance. GPUs are specialized in performing geometric calculations and parallized tasks.
 The three sections of this presentation will be Buffer Writing, Layouts, and Calculations.
 
 ---
 
 ## Buffer Writing
+
 Warning this is C++ code, it is graphic and if you have a weak stomach I recommend looking away for this part. 
 This is a sample of a layout connector that inputs different view model matrices into the GLSL pipeline. This can be eventually generalized once there are many layout blocks that you want to insert data into, for example if you want also material blocks, lighting, fog, etc...
 
